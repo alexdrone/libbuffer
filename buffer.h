@@ -1,7 +1,7 @@
 #ifndef buffer_h
 #define buffer_h
 
-#include "levenshtein.h"
+#include "editx.h"
 #include <stdio.h>
 #include <vector>
 #include <algorithm>
