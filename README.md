@@ -1,4 +1,4 @@
-[![C++11](https://img.shields.io/badge/C++11-orange.svg?style=flat)](#)
+[![C++11](https://img.shields.io/badge/C%2B%2B-11-blue.svg?style=flat)](#)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat)](https://opensource.org/licenses/MIT)
 
 # libbuffer
