@@ -4,7 +4,6 @@
 #include "diff.h"
 #include <stdio.h>
 #include <vector>
-#include <algorithm>
 #include <thread>
 #include <assert.h>
 
@@ -14,29 +13,23 @@ namespace buffer {
   template <typename T>
   class Subscriber {
   public:
+    virtual void onBufferWillChange() = 0;
+    virtual void onBufferDidChange() = 0;
+
     // Callback called whenever the collection changes.
     virtual void onBufferChange(DiffType type, size_t index, T value) = 0;
-  };
-
-  // A lightweight object initialised with the callback closure.
-  template <typename T>
-  class VolatileSubscriber: public Subscriber<T> {
-    std::function<void (DiffType, size_t, T)> callback;
-    // Callback called whenever the collection changes.
-    virtual void onBufferChange(DiffType type, size_t index, T value) {
-      if (callback == nullptr) return;
-      callback(type, index, value);
-    }
   };
 
   template <typename T>
   class Buffer {
   private:
-    std::vector<Subscriber<T>*> *subscribers_ = new std::vector<Subscriber<T>*>();
-    std::vector<T> *back_buffer_ = new std::vector<T>();
-    std::vector<T> *front_buffer_ = new std::vector<T>();
+
+    std::unique_ptr<std::vector<T>> back_buffer_{};
+    std::unique_ptr<std::vector<T>> front_buffer_{};
+    std::unique_ptr<std::vector<Subscriber<T>*>> subscribers_{};
     std::__thread_id init_thread_id_ = std::this_thread::get_id();
-    std::mutex lock_;
+    std::mutex buffer_lock_;
+    std::mutex subscribers_lock_;
 
     // delegate funcs.
     std::function<bool (T, T)> compare_fnc_ = nullptr;
@@ -48,23 +41,34 @@ namespace buffer {
     bool should_recompute_changes_ = false;
 
   public:
+
+    Buffer() {
+      back_buffer_ = std::unique_ptr<std::vector<T>>(new std::vector<T>());
+      front_buffer_ = std::unique_ptr<std::vector<T>>(new std::vector<T>());
+      subscribers_ = std::unique_ptr<std::vector<Subscriber<T>*>>(new std::vector<Subscriber<T>*>());
+    }
+
     // Adds a new subscriber to this buffer.
     void registerSubscriber(Subscriber<T> &subscriber) {
+      subscribers_lock_.lock();
       if (std::find(subscribers_->begin(), subscribers_->end(), &subscriber)!= subscribers_->end()){
         // The subscriber is already registered.
+        subscribers_lock_.unlock();
         return;
       } else {
         subscribers_->push_back(&subscriber);
+        subscribers_lock_.unlock();
       }
     }
 
     // Remove the subscriber passed as argument.
     void unregisterSubscriber(Subscriber<T> &subscriber) {
+      subscribers_lock_.lock();
       auto v = subscribers_;
-      if(std::find(v->begin(), v->end(), &subscriber) != v->end()) {
+      if(std::find(v->begin(), v->end(), &subscriber) != v->end())
         // Remove the subscriber at the found position.
         v.erase(std::remove(v.begin(), v.end(), &subscriber), v.end());
-      }
+      subscribers_lock_.unlock();
     }
 
     // Returns all the element currently exposed from the buffer.
@@ -76,9 +80,7 @@ namespace buffer {
     // Updates the collection, compute the diffs and notifies the subscribers.
     void setCollection(std::vector<T> collection) {
       assert(init_thread_id_ == std::this_thread::get_id());
-
-      delete back_buffer_;
-      back_buffer_ = new std::vector<T>(collection);
+      back_buffer_ = std::unique_ptr<std::vector<T>>(new std::vector<T>(collection));
       refresh();
     }
 
@@ -111,42 +113,42 @@ namespace buffer {
       sort_fnc = sort;
     }
 
-    // Destructor.
-    ~Buffer<T>(void) {
-      delete back_buffer_;
-      delete front_buffer_;
-      delete subscribers_;
-    }
-
   private:
 
     void computeChanges() {
-      lock_.lock();
+      buffer_lock_.lock();
       is_computing_changes_ = true;
-      if (should_recompute_changes_) {
+      if (should_recompute_changes_)
         should_recompute_changes_ = false;
-      }
+
       const auto new_collection = sort_fnc
           ? new std::vector<T>(sort_fnc(std::vector<T>(*back_buffer_)))
           : new std::vector<T>(*back_buffer_);
 
-      auto diffs = diff(std::vector<T>(*front_buffer_), std::vector<T>(*new_collection));
-      delete front_buffer_;
-      front_buffer_ = new_collection;
+      auto diffs = diff(*front_buffer_, *new_collection);
+      auto is_changed = diffs.size();
+
+      if (is_changed)
+        for (auto subscriber : *subscribers_)
+          subscriber->onBufferWillChange();
+
+      front_buffer_ = std::unique_ptr<std::vector<T>>(std::move(new_collection));
 
       // Propagate the event change to all of the subscribers;
-      for (auto diff : diffs) {
-        for (auto subscriber : *subscribers_) {
+      for (auto diff : diffs)
+        for (auto subscriber : *subscribers_)
           subscriber->onBufferChange(diff.type, diff.index, diff.value);
-        }
-      }
+
+      if (is_changed)
+        for (auto subscriber : *subscribers_)
+          subscriber->onBufferDidChange();
+
       is_computing_changes_ = false;
-      lock_.unlock();
+      buffer_lock_.unlock();
 
       // The collection changed while the changes where being computed.
-      if (should_recompute_changes_) {
+      if (should_recompute_changes_)
         computeChanges();
-      }
     }
   };
 }

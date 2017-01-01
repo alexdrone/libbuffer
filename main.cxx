@@ -13,10 +13,22 @@
 #include <thread>
 #include <chrono>
 #include "buffer.h"
+#include "observer.h"
 
 class Foo: public buffer::Subscriber<int> {
+  virtual void onBufferWillChange();
+  virtual void onBufferDidChange();
   virtual void onBufferChange(buffer::DiffType type, size_t index, int value);
 };
+
+
+void Foo::onBufferWillChange() {
+  std::cout << "will change\n";
+}
+
+void Foo::onBufferDidChange() {
+  std::cout << "did change\n";
+}
 
 void Foo::onBufferChange(buffer::DiffType type, size_t index, int value) {
   switch (type) {
@@ -52,5 +64,6 @@ int main(int argc, const char * argv[]) {
   buffer.registerSubscriber(sub);
   buffer.setCollection(o);
   buffer.setCollection(n);
+  buffer.setCollection(o);
   return 0;
 }

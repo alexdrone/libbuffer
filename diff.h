@@ -1,11 +1,9 @@
-#ifndef LCS_hpp
-#define LCS_hpp
+#ifndef diff_hpp
+#define diff_hpp
 
 #include <stdio.h>
-#include <iostream>
 #include <vector>
 #include <algorithm>
-#include <list>
 
 namespace buffer {
 
@@ -86,4 +84,4 @@ namespace buffer {
   }
 }
 
-#endif /* LCS_hpp */
+#endif
